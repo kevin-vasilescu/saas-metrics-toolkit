@@ -1,0 +1,7 @@
+customer_id,plan,monthly_price,start_date,end_date
+A,pro,100,2024-01-10,
+B,basic,50,2024-01-15,2024-03-01
+C,basic,30,2024-02-05,2024-03-01
+C,pro,80,2024-03-01,
+D,basic,40,2024-01-20,2024-02-15
+D,basic,40,2024-04-02,
