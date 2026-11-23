@@ -1,0 +1,68 @@
+name: Maintenance
+
+# Manual workflow: formats the code, regenerates examples/ by running the tool,
+# commits the result, runs the quality gates, then optionally tags a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Tag and publish a GitHub release for the version in pyproject.toml"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]" pandas-stubs
+      - name: Format
+        run: |
+          ruff check --fix .
+          ruff format .
+      - name: Generate examples
+        run: |
+          saas-metrics sample --customers 80 --months 12 --out examples
+          saas-metrics report examples/subscriptions.csv --spend examples/spend.csv --out examples/report.md
+          saas-metrics report examples/subscriptions.csv --spend examples/spend.csv --format html --out examples/report.html
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "chore: format code and generate examples"
+          git push
+      - name: Quality gates
+        run: |
+          ruff check .
+          ruff format --check .
+          mypy --strict src
+          pytest --cov --cov-report=term-missing --cov-fail-under=90
+      - name: Build
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
+      - name: Run CI on the new commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref main
+      - name: Tag and release
+        if: ${{ inputs.release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          tag="v${version}"
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \\[/ {f=0} f' CHANGELOG.md > notes.md
+          git tag -a "$tag" -m "$tag"
+          git push origin "$tag"
+          gh release create "$tag" --title "$tag" --notes-file notes.md dist/*
